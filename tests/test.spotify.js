@@ -5,6 +5,8 @@ const Spotify = require('../spotify')
 
 const PLAYLIST_ID =  '5kwoz8LrXIoCI6NxS2oL9c'
 const USER_ID = 'nimkus';
+
+
 describe('test.spotify', function () {
 
 let spotify;
@@ -65,17 +67,17 @@ let spotify;
             })
     })
 
-    it('should list genres for all genres', (done)=> {
-        spotify.getArchiveGenres(USER_ID)
+    it('should get archive stats', (done)=> {
+        spotify.getArchiveStats(USER_ID)
             .then((res)=> {
                 console.log(res);
                 done();
-            })
-            .catch((err)=> {
+            }) .catch((err)=> {
                 console.log(err)
                 done(err);
             })
     })
+
 });
 
 

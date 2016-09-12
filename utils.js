@@ -1,6 +1,7 @@
 'use strict';
 
 module.exports.breakDownBy = (array, size) => {
+    if(! (array instanceof Array)) return [[array]];
     let stackIndex = -1;
     let stacks = [];
     array.forEach((el, index) => {

@@ -7,7 +7,7 @@ const async = require('async');
 const request = require('superagent');
 const Promise = require('bluebird');
 const utils = require('./utils');
-
+const jsonfile = require('jsonfile')
 
 class Spotify {
 
@@ -46,13 +46,30 @@ class Spotify {
 
     listPlaylistTracks(userId, playlistId) {
         let self = this;
-        console.log(self)
         return new Promise((resolve, reject) => {
             request.get(`https://api.spotify.com/v1/users/${userId}/playlists/${playlistId}/tracks`)
                 .set({Authorization: `Bearer ${self.accessToken}`})
                 .end((err, res) => {
                     if (err) return reject(err);
-                    return resolve(res.body);
+                    //  include audio-features for every track
+                    const items = res.body.items;
+                    let trackIds = items.map((item) => item.track.id);
+                    this.getAudioFeatures(trackIds)
+                        .then((res) => {
+                            // merge tracks and audio-features together
+                            let audioFeatures = _.indexBy(res, 'id');
+                            let tracks = items.map((item) => {
+                                let track = item.track;
+                                return {
+                                    id: track.id,
+                                    name: track.name,
+                                    popularity: track.popularity,
+                                    href: track.href,
+                                    audio_features: audioFeatures[track.id]
+                                };
+                            })
+                            resolve(tracks)
+                        }).catch(reject)
                 });
         })
     }
@@ -78,14 +95,14 @@ class Spotify {
 
     getPlaylistGenres(userId, playlistId) {
         return new Promise((resolve, reject) => {
+
             this.listPlaylistArtists(userId, playlistId)
                 .then((artists) => {
-                    let self = this;
-
                     let genres = [];
                     let artistSets = utils.breakDownBy(artists, 50);
 
                     async.each(artistSets, (artists, next) => {
+                        let self = this;
                         let artistIds = artists.join(',');
                         let query = `ids=${artistIds}`;
                         request.get(`https://api.spotify.com/v1/artists?${query}`)
@@ -108,8 +125,31 @@ class Spotify {
         })
     }
 
+    getAudioFeatures(trackIds) {
+        return new Promise((resolve, reject) => {
+            let features = [];
+            let trackSets = utils.breakDownBy(trackIds, 100);
+            async.each(trackSets, (tracks, next) => {
+                let self = this;
+                let query = `ids=${tracks.join(',')}`;
+                request.get(`https://api.spotify.com/v1/audio-features?${query}`)
+                    .set({Authorization: `Bearer ${self.accessToken}`})
+                    .end((err, res) => {
+                        if (err) next(err)
+                        features.push(res.body.audio_features);
+                        next(null);
+                    });
+            }, (err) => {
+                if (err) return reject(err);
 
-    getArchiveGenres(userId) {
+                // group together those stacks of results
+                features = _.flatten(features);
+                resolve(features);
+            })
+        })
+    }
+
+    getArchiveStats(userId) {
         return new Promise((resolve, reject) => {
             async.waterfall([
                 (next) => {
@@ -142,14 +182,30 @@ class Spotify {
                         if (err) return next(err);
                         next(null, list)
                     })
+                },
+                (playlists, next) => {
+                    let list = [];
+                    async.each(playlists, (p, cb) => {
+                        /* Get playlist genres */
+                        this.listPlaylistTracks(userId, p.id)
+                            .then((genres) => {
+                                p.tracks = genres;
+                                list.push(p)
+                                cb(null)
+                            }).catch(cb)
+                    }, (err) => {
+                        if (err) return next(err);
+                        next(null, list)
+                    })
                 }
             ], (err, playlists) => {
                 if (err) reject(err);
-                resolve(playlists);
+                jsonfile.writeFile('./tmp/data.json', playlists, {spaces: 2}, function (err) {
+                    if (err) reject(err)
+                })
             })
         })
     }
-
 }
 
 module.exports = Spotify;
